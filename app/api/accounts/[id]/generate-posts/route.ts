@@ -15,14 +15,115 @@ interface TrendingTopic {
 
 async function generateImage(prompt: string, aspectRatio = "square"): Promise<string | null> {
   try {
-    console.log("Generating image with Google Gemini 2.5 Flash, prompt:", prompt)
+    console.log("Generating image with DALL-E, prompt:", prompt)
 
-    // Create photorealistic prompt for Gemini
+    // Create photorealistic prompt for DALL-E
     const photoRealisticPrompt = `Create a photorealistic, high-quality professional photograph: ${prompt}. Style: commercial photography, professional lighting, sharp focus, high resolution, realistic textures and colors, professional composition, studio quality, no text overlays.`
+
+    return await generateImageWithDALLE(photoRealisticPrompt, aspectRatio)
+  } catch (error) {
+    console.error("Error generating image:", error)
+
+    // Fallback to placeholder
+    const width = aspectRatio === "horizontal" ? 800 : aspectRatio === "vertical" ? 400 : 600
+    const height = aspectRatio === "horizontal" ? 450 : aspectRatio === "vertical" ? 800 : 600
+    return `/placeholder.svg?height=${height}&width=${width}&text=${encodeURIComponent(prompt.slice(0, 50))}`
+  }
+}
+
+async function generateVideo(prompt: string, aspectRatio = "square"): Promise<string | null> {
+  try {
+    console.log("Generating video with Veo 2 API, prompt:", prompt)
+
+    // Create video-specific prompt for Veo 2
+    const videoPrompt = `Create a professional ${aspectRatio} aspect ratio video: ${prompt}. Style: cinematic, smooth motion, professional quality, commercial video production, dynamic camera movements, engaging visual storytelling, no text overlays. Duration: 5-10 seconds.`
 
     const GOOGLE_API_KEY = "AIzaSyBVE9dtUwaT5zBigSSjRlE0UIGGkD8_5S4"
 
-    // Use Google AI Studio's Gemini 2.5 Flash for text-to-image generation
+    // Map aspect ratios to proper format
+    const aspectRatioMap = {
+      square: "1:1",
+      horizontal: "16:9",
+      vertical: "9:16",
+    }
+
+    // Use the proper Veo 2 API endpoint
+    const response = await fetch("https://api.gemini.google.com/v1/video/generate", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${GOOGLE_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt: videoPrompt,
+        resolution: "1080p",
+        aspect_ratio: aspectRatioMap[aspectRatio as keyof typeof aspectRatioMap] || "1:1",
+        style: "cinematic",
+        duration: "5s",
+      }),
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error("Veo 2 API error:", errorText)
+
+      // Try alternative endpoint format
+      return await tryAlternativeVeo2Endpoint(videoPrompt, aspectRatio)
+    }
+
+    const data = await response.json()
+    console.log("Veo 2 response:", data)
+
+    // Check if we got a video URL from Veo 2
+    if (data.video_url) {
+      console.log("Found video URL from Veo 2:", data.video_url)
+
+      try {
+        // Download and store the video from Veo 2
+        const videoResponse = await fetch(data.video_url)
+        if (videoResponse.ok) {
+          const videoBuffer = await videoResponse.arrayBuffer()
+          const filename = `veo2-video-${Date.now()}-${Math.random().toString(36).substring(7)}.mp4`
+          const blob = await put(filename, videoBuffer, {
+            access: "public",
+            contentType: "video/mp4",
+          })
+          console.log("Veo 2 video uploaded to Vercel Blob:", blob.url)
+          return blob.url
+        }
+      } catch (downloadError) {
+        console.error("Error downloading Veo 2 video:", downloadError)
+        return data.video_url // Return original URL as fallback
+      }
+    }
+
+    // Check for direct video data
+    if (data.video_data) {
+      console.log("Found direct video data from Veo 2")
+      const videoBuffer = Buffer.from(data.video_data, "base64")
+      const filename = `veo2-direct-${Date.now()}-${Math.random().toString(36).substring(7)}.mp4`
+      const blob = await put(filename, videoBuffer, {
+        access: "public",
+        contentType: "video/mp4",
+      })
+      console.log("Veo 2 direct video uploaded to Vercel Blob:", blob.url)
+      return blob.url
+    }
+
+    throw new Error("No video data received from Veo 2")
+  } catch (error) {
+    console.error("Error generating video with Veo 2:", error)
+    return await tryAlternativeVeo2Endpoint(prompt, aspectRatio)
+  }
+}
+
+async function tryAlternativeVeo2Endpoint(prompt: string, aspectRatio = "square"): Promise<string | null> {
+  try {
+    console.log("Trying alternative Veo 2 endpoint")
+
+    const GOOGLE_API_KEY = "AIzaSyBVE9dtUwaT5zBigSSjRlE0UIGGkD8_5S4"
+
+    // Try the Gemini API with video generation parameters
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_API_KEY}`,
       {
@@ -35,7 +136,7 @@ async function generateImage(prompt: string, aspectRatio = "square"): Promise<st
             {
               parts: [
                 {
-                  text: `Generate an image: ${photoRealisticPrompt}. Return only the image data in base64 format.`,
+                  text: `Generate a video using Veo 2 capabilities: ${prompt}. Create a professional ${aspectRatio} aspect ratio video with cinematic quality, smooth motion, and engaging visual storytelling. Duration: 5-10 seconds.`,
                 },
               ],
             },
@@ -70,27 +171,74 @@ async function generateImage(prompt: string, aspectRatio = "square"): Promise<st
 
     if (!response.ok) {
       const errorText = await response.text()
-      console.error("Google Gemini 2.5 Flash error:", errorText)
-
-      // Since Gemini doesn't directly generate images, let's use a different approach
-      // Generate a detailed description and use placeholder for now
-      const width = aspectRatio === "horizontal" ? 800 : aspectRatio === "vertical" ? 400 : 600
-      const height = aspectRatio === "horizontal" ? 450 : aspectRatio === "vertical" ? 800 : 600
-      return `/placeholder.svg?height=${height}&width=${width}&text=${encodeURIComponent(prompt.slice(0, 50))}`
+      console.error("Alternative Veo 2 endpoint error:", errorText)
+      throw new Error(`Alternative Veo 2 API error: ${errorText}`)
     }
 
     const data = await response.json()
-    console.log("Gemini 2.5 Flash response:", data)
+    console.log("Alternative Veo 2 response:", data)
 
-    // Since Gemini 2.5 Flash doesn't generate images directly, we'll use DALL-E as fallback
-    // but with enhanced photorealistic prompts
-    return await generateImageWithDALLE(photoRealisticPrompt, aspectRatio)
+    // Check for video content in various formats
+    if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+      const content = data.candidates[0].content.parts[0]
+
+      // Check for inline video data
+      if (content.inlineData && content.inlineData.mimeType && content.inlineData.mimeType.startsWith("video/")) {
+        console.log("Found inline video data from alternative endpoint")
+        const base64Video = content.inlineData.data
+        const videoBuffer = Buffer.from(base64Video, "base64")
+
+        const filename = `veo2-alt-${Date.now()}-${Math.random().toString(36).substring(7)}.mp4`
+        const blob = await put(filename, videoBuffer, {
+          access: "public",
+          contentType: content.inlineData.mimeType,
+        })
+
+        console.log("Alternative Veo 2 video uploaded to Vercel Blob:", blob.url)
+        return blob.url
+      }
+
+      // Check for file data
+      if (content.fileData && content.fileData.fileUri) {
+        console.log("Found file URI from alternative endpoint:", content.fileData.fileUri)
+
+        try {
+          const videoResponse = await fetch(content.fileData.fileUri)
+          if (videoResponse.ok) {
+            const videoBuffer = await videoResponse.arrayBuffer()
+            const filename = `veo2-file-${Date.now()}-${Math.random().toString(36).substring(7)}.mp4`
+            const blob = await put(filename, videoBuffer, {
+              access: "public",
+              contentType: "video/mp4",
+            })
+            console.log("Alternative Veo 2 file video uploaded:", blob.url)
+            return blob.url
+          }
+        } catch (fileError) {
+          console.error("Error fetching video from alternative file URI:", fileError)
+        }
+      }
+    }
+
+    throw new Error("No video data from alternative Veo 2 endpoint")
   } catch (error) {
-    console.error("Error with Google Gemini 2.5 Flash:", error)
+    console.error("Error with alternative Veo 2 endpoint:", error)
+    return await generateVideoPlaceholder(prompt, aspectRatio)
+  }
+}
 
-    // Fallback to DALL-E with photorealistic enhancement
-    const photoRealisticPrompt = `photorealistic, high-quality professional photograph: ${prompt}. Style: commercial photography, professional lighting, sharp focus, high resolution, realistic textures and colors, professional composition, studio quality`
-    return await generateImageWithDALLE(photoRealisticPrompt, aspectRatio)
+async function generateVideoPlaceholder(prompt: string, aspectRatio = "square"): Promise<string | null> {
+  try {
+    console.log("Creating video placeholder for:", prompt)
+
+    // Create a placeholder that indicates video generation was attempted
+    const width = aspectRatio === "horizontal" ? 800 : aspectRatio === "vertical" ? 400 : 600
+    const height = aspectRatio === "horizontal" ? 450 : aspectRatio === "vertical" ? 800 : 600
+
+    return `/placeholder.svg?height=${height}&width=${width}&text=${encodeURIComponent("Veo 2 Video: " + prompt.substring(0, 25))}`
+  } catch (error) {
+    console.error("Error creating video placeholder:", error)
+    return null
   }
 }
 
@@ -118,8 +266,8 @@ async function generateImageWithDALLE(prompt: string, aspectRatio = "square"): P
         prompt: prompt,
         n: 1,
         size: size,
-        quality: "hd", // Use HD quality for photorealism
-        style: "natural", // Use natural style for photorealism
+        quality: "hd",
+        style: "natural",
         response_format: "b64_json",
       }),
     })
@@ -201,9 +349,15 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   try {
     const accountId = params.id
     const body = await request.json()
-    const { count = 1, aspectRatio = "square", trendingTopic } = body
+    const { count = 1, aspectRatio = "square", mediaType = "image", customPrompt = "", trendingTopic } = body
 
-    console.log("Generating posts for account:", accountId, "with params:", { count, aspectRatio, trendingTopic })
+    console.log("Generating posts for account:", accountId, "with params:", {
+      count,
+      aspectRatio,
+      mediaType,
+      customPrompt,
+      trendingTopic,
+    })
 
     // Fetch account details
     const { data: account, error: accountError } = await supabase
@@ -249,7 +403,7 @@ Format the response as JSON with:
   "hashtags": ["hashtag1", "hashtag2", "hashtag3"]
 }`
 
-        // Generate content using OpenAI (keeping text generation as requested)
+        // Generate content using OpenAI
         console.log("Generating content with prompt length:", contentPrompt.length)
 
         const { text: contentResponse } = await generateText({
@@ -352,18 +506,30 @@ Format the response as JSON with:
           parsedContent.hashtags = []
         }
 
-        // Generate image prompt
-        let imagePrompt = industryPrompts.image
+        // Generate media prompt (image or video)
+        let mediaPrompt = industryPrompts.image
 
-        if (trendingTopic) {
-          imagePrompt = `${industryPrompts.image} Incorporate elements related to ${trendingTopic.title}: ${trendingTopic.description}`
+        // Add custom prompt if provided
+        if (customPrompt.trim()) {
+          mediaPrompt = `${mediaPrompt} Additional requirements: ${customPrompt.trim()}`
         }
 
-        imagePrompt += ` Professional photography style, high quality, commercial use, no text or logos.`
+        if (trendingTopic) {
+          mediaPrompt = `${mediaPrompt} Incorporate elements related to ${trendingTopic.title}: ${trendingTopic.description}`
+        }
 
-        // Generate image using Google Gemini 2.5 Flash (with DALL-E fallback for photorealism)
-        console.log("Generating image for post", i + 1)
-        const imageUrl = await generateImage(imagePrompt, aspectRatio)
+        mediaPrompt += ` Professional photography style, high quality, commercial use, no text or logos.`
+
+        // Generate media based on type
+        console.log(`Generating ${mediaType} for post`, i + 1)
+        let mediaUrl = null
+        let videoUrl = null
+
+        if (mediaType === "video") {
+          videoUrl = await generateVideo(mediaPrompt, aspectRatio)
+        } else {
+          mediaUrl = await generateImage(mediaPrompt, aspectRatio)
+        }
 
         // Add delay between generations to avoid rate limits
         if (i < count - 1) {
@@ -377,8 +543,10 @@ Format the response as JSON with:
             account_id: accountId,
             content: parsedContent.content,
             hashtags: parsedContent.hashtags,
-            image_url: imageUrl,
-            image_prompt: imagePrompt,
+            image_url: mediaUrl,
+            video_url: videoUrl,
+            image_prompt: mediaPrompt,
+            media_type: mediaType,
             status: "draft",
           })
           .select()
@@ -390,7 +558,7 @@ Format the response as JSON with:
         }
 
         posts.push(post)
-        console.log("Successfully generated post", i + 1, "with image:", !!imageUrl)
+        console.log(`Successfully generated ${mediaType} post`, i + 1, "with media:", !!(mediaUrl || videoUrl))
       } catch (error) {
         console.error(`Error generating post ${i + 1}:`, error)
         continue

@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Slider } from "@/components/ui/slider"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { RefreshCw, Download, Wand2, Eye, Edit, Trash2, Loader2 } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { RefreshCw, Download, Wand2, Eye, Edit, Trash2, Loader2, ImageIcon, Video } from "lucide-react"
 import { TrendingTopics } from "./trending-topics"
 import { PostEditModal } from "./post-edit-modal"
 import { ImagePreviewModal } from "./image-preview-modal"
@@ -16,9 +19,11 @@ interface Post {
   content: string
   hashtags: string[] | string
   image_url?: string
+  video_url?: string
   image_prompt?: string
   created_at: string
   status: "draft" | "published"
+  media_type?: "image" | "video"
 }
 
 interface SocialMediaTabProps {
@@ -31,7 +36,9 @@ export function SocialMediaTab({ accountId, account }: SocialMediaTabProps) {
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [postCount, setPostCount] = useState(1)
-  const [imageFormat, setImageFormat] = useState("square")
+  const [mediaFormat, setMediaFormat] = useState("square")
+  const [generateVideo, setGenerateVideo] = useState(false)
+  const [customPrompt, setCustomPrompt] = useState("")
   const [editingPost, setEditingPost] = useState<Post | null>(null)
   const [previewImage, setPreviewImage] = useState<{ url: string; prompt?: string } | null>(null)
 
@@ -57,12 +64,20 @@ export function SocialMediaTab({ accountId, account }: SocialMediaTabProps) {
   const generatePosts = async (trendingTopic?: any) => {
     setGenerating(true)
     try {
-      console.log("Generating posts with:", { trendingTopic, postCount, imageFormat })
+      console.log("Generating posts with:", {
+        trendingTopic,
+        postCount,
+        mediaFormat,
+        generateVideo,
+        customPrompt,
+      })
 
       const endpoint = `/api/accounts/${accountId}/generate-posts`
       const body = {
         count: trendingTopic ? 1 : postCount,
-        aspectRatio: imageFormat,
+        aspectRatio: mediaFormat,
+        mediaType: generateVideo ? "video" : "image",
+        customPrompt: customPrompt.trim(),
         ...(trendingTopic && { trendingTopic }),
       }
 
@@ -102,11 +117,12 @@ export function SocialMediaTab({ accountId, account }: SocialMediaTabProps) {
 
   const exportPosts = () => {
     const csvContent = [
-      ["Content", "Hashtags", "Status", "Created Date"].join(","),
+      ["Content", "Hashtags", "Status", "Media Type", "Created Date"].join(","),
       ...posts.map((post) => [
         `"${post.content.replace(/"/g, '""')}"`,
         `"${Array.isArray(post.hashtags) ? post.hashtags.join(" ") : post.hashtags}"`,
         post.status,
+        post.media_type || "image",
         new Date(post.created_at).toLocaleDateString(),
       ]),
     ].join("\n")
@@ -177,8 +193,8 @@ export function SocialMediaTab({ accountId, account }: SocialMediaTabProps) {
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">Image Format</label>
-              <Select value={imageFormat} onValueChange={setImageFormat}>
+              <label className="text-sm font-medium mb-2 block">{generateVideo ? "Video" : "Image"} Format</label>
+              <Select value={mediaFormat} onValueChange={setMediaFormat}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -191,6 +207,40 @@ export function SocialMediaTab({ accountId, account }: SocialMediaTabProps) {
             </div>
           </div>
 
+          {/* Media Type Toggle */}
+          <div className="flex items-center space-x-4 p-4 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-2">
+              <ImageIcon className="h-5 w-5 text-gray-600" />
+              <Label htmlFor="media-toggle" className="text-sm font-medium">
+                Photo
+              </Label>
+            </div>
+            <Switch id="media-toggle" checked={generateVideo} onCheckedChange={setGenerateVideo} />
+            <div className="flex items-center space-x-2">
+              <Video className="h-5 w-5 text-gray-600" />
+              <Label htmlFor="media-toggle" className="text-sm font-medium">
+                Video
+              </Label>
+            </div>
+          </div>
+
+          {/* Custom Prompt */}
+          <div className="space-y-2">
+            <Label htmlFor="custom-prompt" className="text-sm font-medium">
+              Additional Instructions (Optional)
+            </Label>
+            <Textarea
+              id="custom-prompt"
+              placeholder="Describe specific elements you want to see in the post (e.g., 'Include a person using a laptop', 'Show a modern office setting', 'Feature bright colors and energetic mood')..."
+              value={customPrompt}
+              onChange={(e) => setCustomPrompt(e.target.value)}
+              className="min-h-[80px] resize-none"
+            />
+            <p className="text-xs text-gray-500">
+              This will be combined with your business information and brand settings to create targeted content.
+            </p>
+          </div>
+
           <div className="flex gap-4">
             <Button onClick={() => generatePosts()} disabled={generating} className="flex-1">
               {generating ? (
@@ -201,11 +251,11 @@ export function SocialMediaTab({ accountId, account }: SocialMediaTabProps) {
               ) : (
                 <>
                   <Wand2 className="h-4 w-4 mr-2" />
-                  Generate {postCount} Post{postCount > 1 ? "s" : ""}
+                  Generate {postCount} {generateVideo ? "Video" : "Photo"} Post{postCount > 1 ? "s" : ""}
                 </>
               )}
             </Button>
-            <Button variant="outline" onClick={exportPosts} disabled={posts.length === 0}>
+            <Button variant="outline" size="sm" onClick={exportPosts} disabled={posts.length === 0}>
               <Download className="h-4 w-4 mr-2" />
               Export CSV
             </Button>
@@ -246,7 +296,15 @@ export function SocialMediaTab({ accountId, account }: SocialMediaTabProps) {
               {posts.map((post) => (
                 <div key={post.id} className="border rounded-lg p-4 space-y-3">
                   <div className="flex items-start justify-between">
-                    <Badge variant={post.status === "published" ? "default" : "secondary"}>{post.status}</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={post.status === "published" ? "default" : "secondary"}>{post.status}</Badge>
+                      {post.media_type === "video" && (
+                        <Badge variant="outline" className="text-xs">
+                          <Video className="h-3 w-3 mr-1" />
+                          Video
+                        </Badge>
+                      )}
+                    </div>
                     <div className="flex gap-1">
                       <Button variant="ghost" size="sm" onClick={() => setEditingPost(post)}>
                         <Edit className="h-4 w-4" />
@@ -257,26 +315,62 @@ export function SocialMediaTab({ accountId, account }: SocialMediaTabProps) {
                     </div>
                   </div>
 
-                  {post.image_url && (
+                  {(post.image_url || post.video_url) && (
                     <div className="relative group">
-                      <img
-                        src={post.image_url || "/placeholder.svg"}
-                        alt="Post image"
-                        className="w-full h-32 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => setPreviewImage({ url: post.image_url!, prompt: post.image_prompt })}
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement
-                          console.error("Image failed to load:", post.image_url)
-                          target.src = `/placeholder.svg?height=128&width=256&query=${encodeURIComponent(
-                            post.content.slice(0, 50),
-                          )}`
-                        }}
-                      />
+                      {post.media_type === "video" && post.video_url ? (
+                        <video
+                          src={post.video_url}
+                          className="w-full h-32 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                          controls
+                          muted
+                          preload="metadata"
+                          onError={(e) => {
+                            const target = e.target as HTMLVideoElement
+                            console.error("Video failed to load:", post.video_url)
+                            // Hide the video element if it fails to load
+                            target.style.display = "none"
+                            // Show a fallback message
+                            const fallback = document.createElement("div")
+                            fallback.className =
+                              "w-full h-32 bg-gray-200 rounded flex items-center justify-center text-gray-500 text-sm"
+                            fallback.innerHTML =
+                              '<div class="text-center"><svg class="h-8 w-8 mx-auto mb-2" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h6l2 2h6a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM5 8a1 1 0 000 2h8a1 1 0 100-2H5z"/></svg>Video processing...</div>'
+                            target.parentNode?.appendChild(fallback)
+                          }}
+                          onLoadStart={() => {
+                            console.log("Video loading started:", post.video_url)
+                          }}
+                          onCanPlay={() => {
+                            console.log("Video can play:", post.video_url)
+                          }}
+                        />
+                      ) : (
+                        <img
+                          src={post.image_url || "/placeholder.svg"}
+                          alt="Post image"
+                          className="w-full h-32 object-cover rounded cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => setPreviewImage({ url: post.image_url!, prompt: post.image_prompt })}
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement
+                            console.error("Image failed to load:", post.image_url)
+                            target.src = `/placeholder.svg?height=128&width=256&query=${encodeURIComponent(
+                              post.content.slice(0, 50),
+                            )}`
+                          }}
+                        />
+                      )}
                       <Button
                         variant="secondary"
                         size="sm"
                         className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={() => setPreviewImage({ url: post.image_url!, prompt: post.image_prompt })}
+                        onClick={() => {
+                          if (post.media_type === "video" && post.video_url) {
+                            // Open video in new tab for full view
+                            window.open(post.video_url, "_blank")
+                          } else {
+                            setPreviewImage({ url: post.image_url!, prompt: post.image_prompt })
+                          }
+                        }}
                       >
                         <Eye className="h-4 w-4" />
                       </Button>
